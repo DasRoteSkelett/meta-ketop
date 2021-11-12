@@ -1,9 +1,8 @@
 # short-description: Create an EFI disk image for ketop
 # long-description: Creates a partitioned EFI disk image with dual boot, grub, data partition
-part /boot --source bootimg-efi --sourceparams="loader=grub-efi,initrd=microcode.cpio" --fixed-size 128 --ondisk mmcblk1 --active --align 1024 --use-uuid --part-type C12A7328-F81F-11D2-BA4B-00A0C93EC93B 
-part --source rootfs --fixed-size 3650M --label rootfs1 --part-name rootfs1 --use-uuid --ondisk mmcblk1 --fstype=ext4 --align 1024 --part-type 4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709 
-part --source rootfs --fixed-size 3650M --label rootfs2 --part-name rootfs2 --use-uuid --ondisk mmcblk1 --fstype=ext4 --align 1024 --part-type 4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709 
-# part /mnt/data --size 16384 --label data --fstype=ext4
-part swap --ondisk mmcblk1 --size 4096K --use-uuid --label swap --part-name swap --fstype=swap --part-type 0657FD6D-A4AB-43C4-84E5-0933C84B4F4F 
+part /boot --source bootimg-efi --sourceparams="loader=grub-efi,initrd=microcode.cpio" --fixed-size 128 --active --align 1024 --use-uuid --part-type C12A7328-F81F-11D2-BA4B-00A0C93EC93B 
+part --source rootfs --fixed-size 3072M --label rootfs1 --part-name rootfs1 --use-uuid --fstype=ext4 --align 1024 --part-type 4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709 
+part --source rootfs --fixed-size 3072M --label rootfs2 --part-name rootfs2 --use-uuid --fstype=ext4 --align 1024 --part-type 4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709 
+part /mnt/data --size 128M --label data --part-name data --fstype=ext4
 
 bootloader --configfile=grub.cfg --ptable gpt
