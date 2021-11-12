@@ -1,0 +1,201 @@
+From 431903cc58c8583853f5efcc560e58b68a1efb1a Mon Sep 17 00:00:00 2001
+From: Matthias Schoepfer <m.schoepfer@rethinkrobotics.com>
+Date: Tue, 26 Oct 2021 19:32:31 +0200
+Subject: [PATCH] search: Support searching for GPT partition label with
+ --part-label
+
+GPT partitions have a name property that is useable for identifying the
+partition in Linux via root=PARTLABEL=<partlabel> boot argument or via
+/dev/disk/by-partlabel/<partlabel>. Add support for searching for it in
+GRUB. Compared to the fs label, the partition label does not change when
+reformatting a partition.
+
+Signed-off-by: Daniel Wagenknecht <dwagenknecht@emlix.com>
+---
+ grub-core/Makefile.core.def           |  5 +++
+ grub-core/commands/search.c           | 59 +++++++++++++++++++++++++++
+ grub-core/commands/search_partlabel.c |  5 +++
+ grub-core/commands/search_wrap.c      | 10 ++++-
+ include/grub/search.h                 |  3 +-
+ 5 files changed, 79 insertions(+), 3 deletions(-)
+ create mode 100644 grub-core/commands/search_partlabel.c
+
+diff --git a/grub-core/Makefile.core.def b/grub-core/Makefile.core.def
+index 8022e1c..2613e0d 100644
+--- a/grub-core/Makefile.core.def
++++ b/grub-core/Makefile.core.def
+@@ -1073,6 +1073,11 @@ module = {
+   common = commands/search_label.c;
+ };
+ 
++module = {
++  name = search_part_label;
++  common = commands/search_partlabel.c;
++};
++
+ module = {
+   name = setpci;
+   common = commands/setpci.c;
+diff --git a/grub-core/commands/search.c b/grub-core/commands/search.c
+index ed090b3..6d80c88 100644
+--- a/grub-core/commands/search.c
++++ b/grub-core/commands/search.c
+@@ -30,6 +30,8 @@
+ #include <grub/i18n.h>
+ #include <grub/disk.h>
+ #include <grub/partition.h>
++#include <grub/gpt_partition.h>
++#include <grub/charset.h>
+ 
+ GRUB_MOD_LICENSE ("GPLv3+");
+ 
+@@ -54,6 +56,31 @@ struct search_ctx
+   int is_cache;
+ };
+ 
++/* Helper for grub_search_part_label */
++static char *
++get_utf8 (grub_uint8_t *in, grub_size_t len)
++{
++  grub_uint8_t *buf;
++  grub_uint16_t *tmp;
++  grub_size_t i;
++
++  buf = grub_calloc (len, GRUB_MAX_UTF8_PER_UTF16 + 1);
++  tmp = grub_calloc (len, sizeof (tmp[0]));
++  if (!buf || !tmp)
++    {
++      grub_free (buf);
++      grub_free (tmp);
++      return NULL;
++    }
++  for (i = 0; i < len; i++)
++    tmp[i] = grub_le_to_cpu16 (grub_get_unaligned16 (in + 2 * i));
++  *grub_utf16_to_utf8 (buf, tmp, len) = '\0';
++  grub_free (tmp);
++  return (char *) buf;
++}
++  
++
++
+ /* Helper for FUNC_NAME.  */
+ static int
+ iterate_device (const char *name, void *data)
+@@ -90,6 +117,34 @@ iterate_device (const char *name, void *data)
+ 	}
+       grub_free (buf);
+     }
++#elif defined (DO_SEARCH_PART_LABEL)
++    {
++      grub_device_t dev;
++      char *buf;
++
++      dev = grub_device_open (name);
++      if (dev && dev->disk && dev->disk->partition)
++       {
++         grub_partition_t p = dev->disk->partition;
++         grub_disk_t disk = grub_disk_open(dev->disk->name);
++
++         if (!disk)
++           return 1;
++         if (grub_strcmp (p->partmap->name, "gpt") == 0)
++           {
++             struct grub_gpt_partentry gptdata;
++
++             if (grub_disk_read (disk, p->offset, p->index, sizeof (gptdata), &gptdata))
++               return 1;
++             buf = get_utf8(gptdata.name, 36);
++             if (compare_fn (buf, ctx->key) == 0)
++               found = 1;
++             grub_free (buf);
++           }
++         grub_disk_close(disk);
++         grub_device_close (dev);
++       }
++    }
+ #else
+     {
+       /* SEARCH_FS_UUID or SEARCH_LABEL */
+@@ -313,6 +368,8 @@ static grub_command_t cmd;
+ 
+ #ifdef DO_SEARCH_FILE
+ GRUB_MOD_INIT(search_fs_file)
++#elif defined (DO_SEARCH_PART_LABEL)
++GRUB_MOD_INIT(search_part_label)  
+ #elif defined (DO_SEARCH_FS_UUID)
+ GRUB_MOD_INIT(search_fs_uuid)
+ #else
+@@ -327,6 +384,8 @@ GRUB_MOD_INIT(search_label)
+ 
+ #ifdef DO_SEARCH_FILE
+ GRUB_MOD_FINI(search_fs_file)
++#elif defined (DO_SEARCH_PART_LABEL)
++GRUB_MOD_FINI(search_part_label)
+ #elif defined (DO_SEARCH_FS_UUID)
+ GRUB_MOD_FINI(search_fs_uuid)
+ #else
+diff --git a/grub-core/commands/search_partlabel.c b/grub-core/commands/search_partlabel.c
+new file mode 100644
+index 0000000..8784d90
+--- /dev/null
++++ b/grub-core/commands/search_partlabel.c
+@@ -0,0 +1,5 @@
++#define DO_SEARCH_PART_LABEL 1
++#define FUNC_NAME grub_search_part_label
++#define COMMAND_NAME "search.part_label"
++#define HELP_MESSAGE N_("Search devices by GPT partition label. If VARIABLE is specified, the first device found is set to a variable.")
++#include "search.c"
+diff --git a/grub-core/commands/search_wrap.c b/grub-core/commands/search_wrap.c
+index 47fc8eb..dbfdf96 100644
+--- a/grub-core/commands/search_wrap.c
++++ b/grub-core/commands/search_wrap.c
+@@ -36,6 +36,8 @@ static const struct grub_arg_option options[] =
+      0, 0},
+     {"fs-uuid",		'u', 0, N_("Search devices by a filesystem UUID."),
+      0, 0},
++    {"part-label",     0,   0, N_("Search devices by a GPT partition label."),
++     0, 0},
+     {"set",		's', GRUB_ARG_OPTION_OPTIONAL,
+      N_("Set a variable to the first device found."), N_("VARNAME"),
+      ARG_TYPE_STRING},
+@@ -70,6 +72,7 @@ enum options
+   {
+     SEARCH_FILE,
+     SEARCH_LABEL,
++    SEARCH_PART_LABEL,
+     SEARCH_FS_UUID,
+     SEARCH_SET,
+     SEARCH_NO_FLOPPY,
+@@ -183,6 +186,9 @@ grub_cmd_search (grub_extcmd_context_t ctxt, int argc, char **args)
+   if (state[SEARCH_LABEL].set)
+     grub_search_label (id, var, state[SEARCH_NO_FLOPPY].set, 
+ 		       hints, nhints);
++  else if (state[SEARCH_PART_LABEL].set)
++    grub_search_part_label (id, var, state[SEARCH_NO_FLOPPY].set,
++			    hints, nhints);
+   else if (state[SEARCH_FS_UUID].set)
+     grub_search_fs_uuid (id, var, state[SEARCH_NO_FLOPPY].set,
+ 			 hints, nhints);
+@@ -206,8 +212,8 @@ GRUB_MOD_INIT(search)
+ 			  GRUB_COMMAND_FLAG_EXTRACTOR | GRUB_COMMAND_ACCEPT_DASH,
+ 			  N_("[-f|-l|-u|-s|-n] [--hint HINT [--hint HINT] ...]"
+ 			     " NAME"),
+-			  N_("Search devices by file, filesystem label"
+-			     " or filesystem UUID."
++			  N_("Search devices by file, filesystem label,"
++			     " GPT partition label or filesystem UUID."
+ 			     " If --set is specified, the first device found is"
+ 			     " set to a variable. If no variable name is"
+ 			     " specified, `root' is used."),
+diff --git a/include/grub/search.h b/include/grub/search.h
+index d80347d..9b83f51 100644
+--- a/include/grub/search.h
++++ b/include/grub/search.h
+@@ -25,5 +25,6 @@ void grub_search_fs_uuid (const char *key, const char *var, int no_floppy,
+ 			  char **hints, unsigned nhints);
+ void grub_search_label (const char *key, const char *var, int no_floppy,
+ 			char **hints, unsigned nhints);
+-
++void grub_search_part_label (const char *key, const char *var, int no_floppy,
++			     char **hints, unsigned nhints);
+ #endif
