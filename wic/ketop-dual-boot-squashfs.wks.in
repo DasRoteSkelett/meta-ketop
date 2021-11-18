@@ -1,8 +1,8 @@
 # short-description: Create an EFI disk image for ketop
 # long-description: Creates a partitioned EFI disk image with dual boot, grub, data partition
-part /boot --source bootimg-efi --sourceparams="loader=grub-efi,initrd=microcode.cpio" --fixed-size 128 --active --align 1024 --use-uuid --part-type C12A7328-F81F-11D2-BA4B-00A0C93EC93B 
-part --source rootfs --fixed-size 1536M --part-name rootfs1 --use-uuid --fstype=squashfs --align 1024 --part-type 4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709 
-part --source rootfs --fixed-size 1536M --part-name rootfs2 --use-uuid --fstype=squashfs --align 1024 --part-type 4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709 
+part /boot --source bootimg-efi --sourceparams="loader=grub-efi,initrd=microcode.cpio" --fixed-size 128 --active --align 1024 --part-type C12A7328-F81F-11D2-BA4B-00A0C93EC93B 
+part --source rootfs --fixed-size 1536M --part-name rootfs1 --fstype=squashfs --align 1024 --part-type 4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709 
+part --source rootfs --fixed-size 1536M --part-name rootfs2 --fstype=squashfs --align 1024 --part-type 4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709 
 part /mnt/data --source rootfs --rootfs-dir=${IMAGE_ROOTFS}/mnt/data --size 3072M --part-name data --label data --fstype=ext4 
 
 bootloader --configfile=grub-squashfs.cfg --ptable gpt
